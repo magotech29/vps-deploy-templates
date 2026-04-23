@@ -267,6 +267,44 @@ certbot --nginx -d {{SUBDOMAIN}}.mago-t.com
 # 1つのSecretに複数の値をまとめて入れないこと
 ```
 
+### 502 Bad Gateway（DATABASE_URL が見つからないエラー）
+
+アプリが期待する環境変数名はコードによって異なる。`.env` に `DATABASE_URL` ではなく別の名前（例：`NEON_DATABASE_URL`）で設定している場合は名前を合わせる。
+
+```bash
+# コンテナ内の環境変数を確認
+docker compose exec app printenv | grep -i database
+
+# .env の変数名を確認・修正
+nano .env
+
+# 再起動（restart ではなく down→up で .env を再読み込み）
+docker compose down
+docker compose up -d
+```
+
+### 502 Bad Gateway（ポートの不一致）
+
+アプリが実際に動いているポートと `docker-compose.yml` のマッピングが合っていない場合。
+
+```bash
+# アプリが実際に何番ポートで起動しているか確認
+docker compose logs --tail=20 | grep port
+
+# docker-compose.yml のポートマッピングを修正
+# 形式: "ホスト側ポート:コンテナ内ポート"
+# 例: アプリが5000で動いていてNginxが5001に向けている場合
+ports:
+  - "5001:5000"
+```
+
+### VPSとローカルのターミナルを混同してしまう
+
+git操作（`git add`, `git commit`, `git push`）は**ローカルのPowerShell**から行う。VPSのSSHターミナルから実行するとパスが見つからずエラーになる。
+
+- VPS作業：SSH接続したターミナル（`root@v133...`）
+- git操作：ローカルのPowerShell（`C:\Dev\...`）
+
 ### デプロイ失敗時のロールバック
 
 **直前のコンテナに戻す：**
