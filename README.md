@@ -33,6 +33,7 @@ FaceRecall移行作業（2026/04/22）をベースに作成。
 | `docker-compose.yml.template`           | コンテナ起動設定             |
 | `.github/workflows/deploy.yml.template` | GitHub Actions自動デプロイ |
 | `nginx.conf.template`                   | Nginxリバースプロキシ設定      |
+| `.env.example`                          | 環境変数のサンプル（必要な変数一覧）   |
 
 
 ### 変数一覧
@@ -92,20 +93,12 @@ FaceRecall移行作業（2026/04/22）をベースに作成。
   cd {{APP_NAME}}
   git checkout -b vps-deploy
   ```
-- `.env`ファイルを作成（Cursorで編集推奨）
+- `.env`ファイルを作成（`.env.example` をコピーして値を入力）
+  ```bash
+  cp .env.example .env
+  # Cursorで .env を開いて実際の値を入力
   ```
-  NODE_ENV=production
-  PORT={{PORT}}
-  DATABASE_URL=
-  AUTH0_DOMAIN=
-  AUTH0_CLIENT_ID=
-  AUTH0_CLIENT_SECRET=
-  AUTH0_AUDIENCE=
-  OPENAI_API_KEY=
-  SUPABASE_URL=
-  SUPABASE_KEY=
-  （その他必要な環境変数）
-  ```
+  > `.env` は絶対に `git add` しないこと。`.gitignore` に含まれているか必ず確認する。
 
 ### Phase 4：Dockerファイル作成
 
@@ -170,7 +163,39 @@ FaceRecall移行作業（2026/04/22）をベースに作成。
   ```
 - 既存のReplitのURLはカンマ区切りで残す
 
-### Phase 9：GitHub Actions自動デプロイ
+### Phase 9：SSH鍵認証の設定（推奨）
+
+rootパスワード認証よりセキュアなSSH鍵認証に切り替える。GitHub Actionsでも鍵認証を使うことで、Secretsにパスワードを入れずに済む。
+
+**ローカルで鍵を生成（未作成の場合）：**
+```bash
+ssh-keygen -t ed25519 -C "vps-deploy"
+# 保存先: ~/.ssh/id_ed25519_vps（デフォルトと分けると管理しやすい）
+```
+
+**VPSに公開鍵を登録：**
+```bash
+ssh-copy-id -i ~/.ssh/id_ed25519_vps.pub root@133.18.181.82
+# または手動で
+cat ~/.ssh/id_ed25519_vps.pub | ssh root@133.18.181.82 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+**接続確認：**
+```bash
+ssh -i ~/.ssh/id_ed25519_vps root@133.18.181.82
+```
+
+**GitHub Secretsに秘密鍵を登録：**
+```
+VPS_SSH_KEY：~/.ssh/id_ed25519_vps の内容（-----BEGIN～-----END まで全部）
+VPS_HOST：133.18.181.82
+VPS_USER：root
+```
+> `VPS_PASSWORD` の代わりに `VPS_SSH_KEY` を使うように `deploy.yml` を更新すること。
+
+---
+
+### Phase 10：GitHub Actions自動デプロイ
 
 - `.github/workflows/deploy.yml`を作成（テンプレートから`{{APP_NAME}}`を置換）
 - GitHubリポジトリのSecretsを設定
@@ -188,7 +213,7 @@ FaceRecall移行作業（2026/04/22）をベースに作成。
   ```
 - GitHub ActionsのActionsタブで成功を確認
 
-### Phase 10：最終確認
+### Phase 11：最終確認
 
 - `https://{{SUBDOMAIN}}.mago-t.com`でアクセス確認
 - ログイン・主要機能の動作確認
@@ -241,6 +266,34 @@ certbot --nginx -d {{SUBDOMAIN}}.mago-t.com
 # GitHub SecretsのVPS_HOSTが正しく設定されているか確認
 # 1つのSecretに複数の値をまとめて入れないこと
 ```
+
+### デプロイ失敗時のロールバック
+
+**直前のコンテナに戻す：**
+```bash
+ssh root@133.18.181.82
+cd /var/www/{{APP_NAME}}/{{APP_NAME}}
+
+# 現在のコンテナを停止
+docker compose down
+
+# 直前のイメージに戻す（イメージ名を確認）
+docker images | head -10
+
+# タグを指定して起動
+docker compose up -d --no-build
+```
+
+**Gitで前のコミットに戻す：**
+```bash
+cd /var/www/{{APP_NAME}}/{{APP_NAME}}
+git log --oneline -5          # 戻りたいコミットのハッシュを確認
+git checkout <commit-hash>    # 該当コミットに切り替え
+docker compose up --build -d  # 再ビルド・起動
+```
+
+**GitHub Actionsで前のワークフローを再実行：**
+- GitHub の Actions タブ → 成功していたワークフローを選択 → "Re-run jobs"
 
 ---
 
